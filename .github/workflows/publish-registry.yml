@@ -1,0 +1,42 @@
+name: Publish to MCP Registry
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the version from server.json
+        id: v
+        run: echo "version=$(jq -r .version server.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build and push the image
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/netops-field-notes-mcp
+          docker build -t "$IMAGE:${{ steps.v.outputs.version }}" -t "$IMAGE:latest" .
+          docker push "$IMAGE:${{ steps.v.outputs.version }}"
+          docker push "$IMAGE:latest"
+
+      - name: Install mcp-publisher
+        run: |
+          curl -sL https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz \
+            | tar xz mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+
+      - name: Publish the server entry
+        run: |
+          mcp-publisher login github-oidc
+          mcp-publisher publish

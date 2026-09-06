@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netops-field-notes-mcp"
+version = "0.1.0"
+description = "Read-only MCP server for network engineers: config drift, CIS/PCI checks, 802.1X diagnosis, certificates inside configs, device facts and topology, OPNsense rule changes, change pre-flight, config sanitising."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "James Son" }]
+requires-python = ">=3.10"
+dependencies = ["mcp>=2.0", "cryptography>=41"]
+keywords = ["mcp", "mcp-server", "model-context-protocol", "network-automation", "config-drift", "cis", "pci", "802.1x", "radius", "ise", "certificates", "opnsense", "claude"]
+classifiers = ["License :: OSI Approved :: MIT License", "Programming Language :: Python :: 3", "Topic :: System :: Networking"]
+
+[project.urls]
+Homepage = "https://netopsfieldnotes.com/"
+Repository = "https://github.com/labaccessnow/netops-field-notes-mcp"
+Issues = "https://github.com/labaccessnow/netops-field-notes-mcp/issues"
+
+[project.scripts]
+netops-field-notes-mcp = "netops_field_notes.server:main"
+
+[tool.setuptools.packages.find]
+include = ["netops_field_notes*"]
