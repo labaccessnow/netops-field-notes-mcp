@@ -23,13 +23,6 @@ from .lib.changeguard import preflight
 from .lib.checks import run_checks
 from .lib.sanitize import sanitize
 
-SITE = "https://netopsfieldnotes.com/?s=mcp"
-DRIFTWATCH = "https://driftwatch.labaccessnow.com/?s=mcp-netops"
-
-
-def _sign(body: str, link: str = SITE) -> str:
-    return f"{body}\n\n— NetOps Field Notes · {link}"
-
 
 def _vendor(text: str, given: str) -> str:
     return (given or "").strip().lower() or pipeline.detect_vendor(text)
@@ -115,7 +108,7 @@ def explain_config_diff(before: str, after: str, device: str = "", vendor: str =
     if not (before or "").strip() or not (after or "").strip():
         return "Both before and after snapshots are needed."
     v = _vendor(after, vendor)
-    return _sign(_render_changes(_explain_hunks(before, after, device, v), device, v), DRIFTWATCH)
+    return _render_changes(_explain_hunks(before, after, device, v), device, v)
 
 
 # ---------------------------------------------------------------- compliance
@@ -141,7 +134,7 @@ def check_config_compliance(config: str, vendor: str = "") -> str:
         tail = f"\nFix first (highest severity at the top):\n{fixes}\n\nThese are regex checks over one config file — good for the obvious, not a substitute for a full benchmark run."
     else:
         tail = "\nEvery check passed. Treat that as a floor, not a certification."
-    return _sign("\n".join([head, "", body, tail]), DRIFTWATCH)
+    return "\n".join([head, "", body, tail])
 
 
 # ---------------------------------------------------------------- 802.1X
@@ -158,7 +151,7 @@ def diagnose_dot1x(radius_log: str = "", switchport_config: str = "", supplicant
         return "Give at least one of: radius_log, switchport_config, supplicant_log."
     d = nacpilot.diagnose(nacpilot.parse_radius(radius_log or ""), nacpilot.parse_supplicant(supplicant_log or ""),
                           nacpilot.parse_switchport(switchport_config or ""))
-    return _sign(nacpilot.render_text(d, {}))
+    return nacpilot.render_text(d, {})
 
 
 @server.tool(
@@ -171,11 +164,11 @@ def lookup_ise_failure_code(code: str) -> str:
     entry = nacpilot.ISE_CODES.get(c)
     if not entry:
         known = ", ".join(sorted(nacpilot.ISE_CODES, key=int))
-        return _sign(f"Code {c or code!s} is not in the table (it covers {known}).\n"
-                     "In ISE, open Operations > RADIUS > Live Logs, click the details icon on the failed attempt, and read the "
-                     "'Failure Reason' and 'Steps' panes — the step code next to the last non-green step is the real reason.")
+        return (f"Code {c or code!s} is not in the table (it covers {known}).\n"
+                "In ISE, open Operations > RADIUS > Live Logs, click the details icon on the failed attempt, and read the "
+                "'Failure Reason' and 'Steps' panes — the step code next to the last non-green step is the real reason.")
     name, meaning, fix = entry
-    return _sign(f"ISE {c} — {name}\n\n  What it means  {meaning}\n  Fix            {fix}")
+    return f"ISE {c} — {name}\n\n  What it means  {meaning}\n  Fix            {fix}"
 
 
 # ---------------------------------------------------------------- certificates
@@ -208,7 +201,7 @@ def find_certs_in_config(config: str, vendor: str = "", role: str = "") -> str:
     v = _vendor(config, vendor)
     ders = certutil.certs_from_config(config, v)
     if not ders:
-        return _sign("No certificates found: no PEM blocks and no OPNsense <crt> elements in that text.", DRIFTWATCH)
+        return "No certificates found: no PEM blocks and no OPNsense <crt> elements in that text."
     now = time.time()
     blocks, total = [], 0
     for der in ders:
@@ -220,7 +213,7 @@ def find_certs_in_config(config: str, vendor: str = "", role: str = "") -> str:
         total += len(f)
         blocks.append(_render_cert(rec, f, now))
     head = f"{len(ders)} certificate{'s' if len(ders) != 1 else ''} in this {v} config, {total} finding{'s' if total != 1 else ''}."
-    return _sign("\n\n".join([head, *blocks]), DRIFTWATCH)
+    return "\n\n".join([head, *blocks])
 
 
 def _is_public(ip: str) -> bool:
@@ -250,21 +243,21 @@ def check_tls_endpoint(host: str, port: int = 443, role: str = "") -> str:
     try:
         ips = sorted({i[4][0] for i in socket.getaddrinfo(h, port, proto=socket.IPPROTO_TCP)})
     except socket.gaierror:
-        return _sign(f"DNS resolution failed for {h}.")
+        return f"DNS resolution failed for {h}."
     bad = [ip for ip in ips if not _is_public(ip)]
     if bad:
-        return _sign(f"{h} resolves to {bad[0]}, which is private or reserved space — refused. This tool only inspects hosts on the public internet.")
+        return f"{h} resolves to {bad[0]}, which is private or reserved space — refused. This tool only inspects hosts on the public internet."
     r = tlsprobe.probe(f"{h}:{port}")
     if not r["ok"]:
-        return _sign(f"Could not read a certificate from {h}:{port}: {r['error']}")
+        return f"Could not read a certificate from {h}:{port}: {r['error']}"
     rec = certutil.record_from_der(r["der"])
     if not rec:
-        return _sign(f"{h}:{port} served a certificate this tool could not decode.")
+        return f"{h}:{port} served a certificate this tool could not decode."
     now = time.time()
     f = certscan.findings_for(rec, role=role, endpoint=f"{h}:{port}", verify_ok=r["verify_ok"], now=now)
     verify = "chain and hostname verify" if r["verify_ok"] else ("chain does NOT verify on this machine" if r["verify_ok"] is False else "verification result unknown")
     head = f"{h}:{port} — {r['tls_version'] or '?'}, {verify}, {len(f)} finding{'s' if len(f) != 1 else ''}."
-    return _sign("\n\n".join([head, _render_cert(rec, f, now)]), DRIFTWATCH)
+    return "\n\n".join([head, _render_cert(rec, f, now)])
 
 
 # ---------------------------------------------------------------- facts + topology
@@ -283,7 +276,7 @@ def extract_device_facts(config: str, vendor: str = "", device: str = "") -> str
     addrs = "\n".join(f"    {a['ip']}/{a['cidr']}  (on {a['net']})" for a in f["addresses"]) or "    none found"
     body = [f"{f['hostname']} — {f['role']} ({v})", "", f"  Addresses ({f['ip_count']}):", addrs,
             f"  Subnets: {', '.join(f['nets']) or 'none'}", f"  VLANs ({len(f['vlans'])}): {', '.join(map(str, f['vlans'])) or 'none'}"]
-    return _sign("\n".join(body))
+    return "\n".join(body)
 
 
 @server.tool(
@@ -306,7 +299,7 @@ def infer_topology(devices: list[DeviceConfig]) -> str:
     if unlinked:
         body += ["", f"Not linked to anything: {', '.join(unlinked)} (no shared subnet — DHCP-addressed, or a segment only one config declares)"]
     body += ["", "Mermaid:", "```mermaid", mm, "```"]
-    return _sign("\n".join(body))
+    return "\n".join(body)
 
 
 # ---------------------------------------------------------------- OPNsense rules
@@ -325,7 +318,7 @@ def explain_firewall_change(before: str, after: str, device: str = "") -> str:
     if "<opnsense" not in after[:600] and "<opnsense" not in before[:600]:
         return "This tool reads OPNsense config.xml. For other vendors use explain_config_diff."
     changes = _explain_hunks(before, after, device, "opnsense")
-    return _sign(_render_changes(changes, device or "firewall", "opnsense"), DRIFTWATCH)
+    return _render_changes(changes, device or "firewall", "opnsense")
 
 
 # ---------------------------------------------------------------- pre-flight
@@ -371,7 +364,7 @@ def preflight_change(current: str, proposed: str, device: str = "", vendor: str 
         for c in pf["changes"]:
             lines.append(f"  [{c['risk']}] {c.get('summary', '')}")
     lines += ["", pf["rollback"]]
-    return _sign("\n".join(lines), DRIFTWATCH)
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------- sanitise
@@ -391,7 +384,7 @@ def sanitize_config(config: str) -> str:
     total = sum(counts.values())
     summary = ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) or "nothing matched"
     note = f"{total} item{'s' if total != 1 else ''} scrubbed ({summary}). Heuristic — read the output before you paste it anywhere."
-    return _sign(f"{note}\n\n{clean.rstrip()}")
+    return f"{note}\n\n{clean.rstrip()}"
 
 
 # ---------------------------------------------------------------- brand
@@ -418,10 +411,10 @@ def latest_field_note(count: int = 3) -> str:
             if len(items) >= n:
                 break
         if not items:
-            return _sign("No episodes in the feed right now.")
-        return _sign("Latest from This Week in NetOps:\n\n" + "\n\n".join(items) + "\n\nListen: https://netopsfieldnotes.com/podcast/?s=mcp")
+            return "No episodes in the feed right now."
+        return "Latest from This Week in NetOps:\n\n" + "\n\n".join(items)
     except Exception as e:  # noqa: BLE001 — a feed hiccup is not a tool failure
-        return _sign(f"Could not reach the feed ({e}). The episodes are at https://netopsfieldnotes.com/podcast/?s=mcp")
+        return f"Could not reach the feed ({e})."
 
 
 def main() -> None:
